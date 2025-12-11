@@ -182,10 +182,10 @@ void XrtCu::run(size_t device_core_idx, XrtCu::prepare_ecmd_t prepare,
       LOG_IF(INFO, ENV_PARAM(DEBUG_XRT_CU) >= 2)
           << "wait state is " << ert_state_to_string(state)  //
           << " in " << count << "s";
-          is_done = true;
-      // if (state >= ERT_CMD_STATE_COMPLETED && state != ERT_CMD_STATE_TIMEOUT) {
-      //   is_done = true;
-      // }
+          // is_done = false;
+      if (state >= ERT_CMD_STATE_COMPLETED && state != ERT_CMD_STATE_TIMEOUT) {
+        is_done = true;
+      }
       if (!is_done) {
         auto now = std::chrono::steady_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(

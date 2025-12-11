@@ -6,6 +6,8 @@
 #include <memory>
 #include <vector>
 #include <cstdlib>
+#include <chrono>
+#include <vitis/ai/profiling.hpp>
 
 #include <xir/tensor/tensor.hpp>
 #include "vart/dpu/vitis_dpu_runner_factory.hpp"
@@ -15,25 +17,24 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-  if (argc < 6) {
+  if (argc < 4) {
     std::cerr << "Usage: " << argv[0]
-              << " <xmodel_path> <kernel_name> <input_file> <runner_num>\n";
+              << " <xmodel_path> <input_file> <runner_num>\n";
     return 1;
   }
 
   const string xmodel = argv[1];
-  const string kernel = argv[2];
-  const string input_file = argv[3];
-  const int runner_num = std::stoi(argv[4]);
+  const string input_file = argv[2];
+  const int runner_num = std::stoi(argv[3]);
   // const int batch_count = std::stoi(argv[5]);
 
-  const string xclbin1 = "/usr/lib/rp.xclbin";
+  const string xclbin1 ="/run/media/mmcblk0p1/dpu.xclbin";
   setenv("XLNX_VART_FIRMWARE", xclbin1.c_str(), 1);  // 固定设定 firmware
 
   vector<std::unique_ptr<vart::Runner>> runners;
   for (int rr = 0; rr < runner_num; rr++) {
     runners.emplace_back(
-        vart::dpu::DpuRunnerFactory::create_dpu_runner(xmodel, kernel));
+        vart::dpu::DpuRunnerFactory::create_dpu_runner(xmodel, "subgraph_0"));
   }
 
   for (int rr = 0; rr < runner_num; rr++) {
@@ -62,7 +63,9 @@ int main(int argc, char* argv[]) {
     }
 
     // 执行一次推理
+  __TIC__(DPU_EXECUTE_ASYNC)
     auto job_id = runner->execute_async(input, output);
+  __TOC__(DPU_EXECUTE_ASYNC)
     runner->wait(job_id.first, -1);
 
     // 同步读
