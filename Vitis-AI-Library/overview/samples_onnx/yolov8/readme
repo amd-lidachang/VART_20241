@@ -1,0 +1,70 @@
+/*
+ * Copyright 2022-2023 Advanced Micro Devices Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+Important:
+  ./test_yolov8_onnx, ./test_performance_yolov8_onnx, ./test_accuracy_yolov8_onnx first param followed must be with model name.
+  Valid model name:
+    yolov8.onnx
+
+1, compile
+
+    execute the following command:
+
+        sh build.sh
+
+2, copy the compiled executable file and test image to the development board.
+
+   run the executable file.
+        ./test_yolov8_onnx <model_name> <test_image> 
+
+    sample :  ./test_yolov8_onnx yolov8.onnx demo.jpg
+   
+RESULT: 56      291.712036      218.662842      353.993805      320.360474      0.939913
+RESULT: 62      6.208359        165.984436      154.882172      261.091309      0.924142
+RESULT: 56      361.419983      218.188721      418.339813      319.681885      0.880797
+RESULT: 0       412.493469      157.345825      465.102417      296.993073      0.817574
+RESULT: 60      319.467102      218.812195      440.290253      320.524506      0.817574
+RESULT: 56      409.776245      219.546265      442.758545      309.237030      0.731059
+RESULT: 58      231.062958      175.864563      267.385620      212.956390      0.731059
+RESULT: 72      445.564209      169.444702      513.968384      283.985291      0.731059
+RESULT: 75      549.098267      298.421509      586.387085      401.265045      0.731059
+RESULT: 72      490.540955      170.260651      513.030823      283.724823      0.622459
+RESULT: 74      448.489899      120.699738      461.450897      141.975159      0.622459
+RESULT: 75      359.916382      213.945984      374.589386      230.439941      0.562177
+RESULT: 60      461.134583      342.863892      640.027588      421.901306      0.562177
+RESULT: 68      512.449097      205.494324      527.008972      222.440460      0.562177
+RESULT: 62      560.122681      210.170105      638.043457      287.959930      0.437824
+RESULT: 75      351.979492      210.537384      361.934113      230.008759      0.377541
+RESULT: 0       384.881561      172.010071      401.555389      211.963623      0.377541
+RESULT: 73      605.725464      306.124756      639.978516      356.005402      0.377541
+RESULT: 58      333.860840      176.414948      380.968353      217.002838      0.320821
+RESULT: 39      549.099365      298.774109      586.397888      401.280579      0.320821
+RESULT: 75      166.976379      233.779968      185.947784      267.900604      0.320821
+RESULT: 75      239.963928      196.964233      253.396774      213.005219      0.320821
+
+
+Performance: 
+    ./test_performance_yolov8_onnx <model_name> test_performance_yolov8.list -s 60 -t <thread> 
+
+    sample:
+    ./test_performance_yolov8_onnx yolov8.onnx test_performance_yolov8.list -s 60 -t 1
+
+
+Accuracy:
+    ./test_accuracy_yolov8_onnx <model_name> <image_list_filename> <output_filename> -t <thread>
+
+    sample:
+    ./test_accuracy_yolov8_onnx yolov8.onnx image.list result.txt -t 2

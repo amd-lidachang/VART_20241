@@ -1,0 +1,47 @@
+#
+# Copyright 2022-2023 Advanced Micro Devices Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+#Move all to vck190 and deploy 4mipi-camera
+#First start up
+/etc/init.d/xserver-nodm stop
+sh quad_640x360_bgr.sh
+
+#Modifying camera Parameters
+v4l2-ctl -d /dev/v4l-subdev11 -c ar0231_green_balance=170
+v4l2-ctl -d /dev/v4l-subdev12 -c ar0231_green_balance=170
+v4l2-ctl -d /dev/v4l-subdev13 -c ar0231_green_balance=170
+v4l2-ctl -d /dev/v4l-subdev14 -c ar0231_green_balance=170
+v4l2-ctl -d /dev/v4l-subdev11 -c ar0231_blue_balance=500
+v4l2-ctl -d /dev/v4l-subdev11 -c ar0231_red_balance=140
+v4l2-ctl -d /dev/v4l-subdev11 -c ar0231_exposure=1000
+v4l2-ctl -d /dev/v4l-subdev11 -c ar0231_digital_gain=800
+v4l2-ctl -d /dev/v4l-subdev12 -c ar0231_blue_balance=500
+v4l2-ctl -d /dev/v4l-subdev12 -c ar0231_red_balance=140
+v4l2-ctl -d /dev/v4l-subdev12 -c ar0231_exposure=1000
+v4l2-ctl -d /dev/v4l-subdev12 -c ar0231_digital_gain=800
+v4l2-ctl -d /dev/v4l-subdev13 -c ar0231_blue_balance=500
+v4l2-ctl -d /dev/v4l-subdev13 -c ar0231_red_balance=140
+v4l2-ctl -d /dev/v4l-subdev13 -c ar0231_exposure=1000
+v4l2-ctl -d /dev/v4l-subdev13 -c ar0231_digital_gain=800
+v4l2-ctl -d /dev/v4l-subdev14 -c ar0231_blue_balance=500
+v4l2-ctl -d /dev/v4l-subdev14 -c ar0231_red_balance=140
+v4l2-ctl -d /dev/v4l-subdev14 -c ar0231_exposure=1000
+v4l2-ctl -d /dev/v4l-subdev14 -c ar0231_digital_gain=800
+
+#build target
+sh build_4mipi_spnet.sh
+
+#Begin to run
+sh run_4mipi_spnet.sh

@@ -1,0 +1,1 @@
+env XLNX_ENABLE_FINGERPRINT_CHECK=0  ./bevdet image.list bevdet_img

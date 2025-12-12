@@ -1,0 +1,57 @@
+/*
+ * Copyright 2022-2023 Advanced Micro Devices Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+1, compile
+
+    execute the following command:
+
+        sh build.sh
+
+2, copy the compiled executable file and test image to the development board.
+
+   run the executable file.
+        ./test_yolov5_onnx <model_name> <test_image> 
+
+    sample :  ./test_yolov5_onnx yolov5_onnx/yolov5_onnx.onnx demo.jpg
+   
+RESULT: 0       411.923 154.091 465.938 305.909 0.919882
+RESULT: 0       387.629 174.242 408.058 215.445 0.560156
+RESULT: 56      295.74  223.552 349.755 319.822 0.948183
+RESULT: 56      410.17  218.644 443.809 309.888 0.919318
+RESULT: 56      362.358 219.239 417.712 322.759 0.891928
+RESULT: 58      234.17  171.388 267.809 212.592 0.820456
+RESULT: 60      310.487 218.695 419.35  323.303 0.642195
+RESULT: 62      4.21698 168.588 157.783 262.906 0.933206
+RESULT: 62      559.821 210.552 638.2   286.919 0.920803
+RESULT: 72      490.865 170.657 515.156 289.657 0.512722
+RESULT: 74      448.835 122.833 461.186 143.954 0.740436
+RESULT: 75      549.427 299.37  589.592 400.956 0.786961
+RESULT: 75      167.392 233.82  187.82  268.249 0.718335
+
+
+
+Performance: 
+    ./test_performance_yolov5_onnx <model_name> test_performance_yolov5.list -s 60 -t <thread> 
+
+    sample:
+    ./test_performance_yolov5_onnx yolov5_onnx/yolov5_onnx.onnx test_performance_yolov5.list -s 60 -t 1
+
+
+Accuracy:
+    ./test_accuracy_yolov5_onnx <model_name> <image_list_filename> <output_filename> -t <thread>
+
+    sample:
+    ./test_accuracy_yolov5_onnx yolov5_onnx/yolov5_onnx.onnx image.list result.txt -t 2
