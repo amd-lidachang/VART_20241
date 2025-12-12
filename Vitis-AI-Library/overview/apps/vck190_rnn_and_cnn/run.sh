@@ -1,1 +1,0 @@
-./rnn_and_cnn seg_512_288.avi vector.webm pose_960_540.avi 5 vector.wav

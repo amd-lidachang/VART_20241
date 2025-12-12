@@ -1,0 +1,71 @@
+/*
+ * Copyright 2022-2023 Advanced Micro Devices Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * <http://www.apache.org/licenses/LICENSE-2.0>
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+Important:
+  ./test_jpeg_bevdet, ./test_performance_bevdet first param followed must be with model name.
+  Valid model name:
+    bevdet_pt
+
+1, compile
+
+    execute the following command:
+
+        sh build.sh
+
+2, copy the compiled executable file and test image to the development board.
+
+   run the executable file.
+
+    sample : ./test_jpeg_bevdet bevdet_pt img.list  bin.list
+    output : 
+label: 7 score: 0.622459 bbox: -4.21875 -8.38125 -2.08456 0.635639 1.98874 1.16912 -2.91951 0 0
+label: 0 score: 0.592667 bbox: -0.60625 -22.0125 -2.56163 2.05187 4.92217 1.81077 -3.04955 0.75 8.125
+label: 3 score: 0.320821 bbox: -14.5375 38.1 -1.00886 2.71828 8.63868 3.08022 2.73773 0 0
+label: 8 score: 0.2227 bbox: 31.6625 -30.675 -2.43663 0.687289 0.731616 1.81077 2.20835 -0.671875 0.71875
+label: 8 score: 0.2227 bbox: 30.9125 -29.95 -2.43663 0.687289 0.731616 1.81077 2.22922 -0.6875 0.765625
+label: 8 score: 0.2227 bbox: -14.725 23.625 -1.03038 0.698112 0.766727 1.81077 -2.83059 -0.265625 0.484375
+label: 8 score: 0.2227 bbox: -14.8375 24.3625 -1.03038 0.698112 0.766727 1.81077 -3.02917 -0.296875 0.671875
+label: 8 score: 0.2227 bbox: -15.575 25.1625 -0.967883 0.687289 0.766727 1.81077 3.05093 -0.296875 0.859375
+label: 8 score: 0.2227 bbox: -16.45 26.825 -0.967883 0.676634 0.75484 1.81077 2.91137 -0.1875 0.90625
+label: 8 score: 0.2227 bbox: -17.15 27.625 -0.967883 0.676634 0.75484 1.81077 2.90422 -0.25 0.875
+label: 8 score: 0.2227 bbox: -17.175 28.4125 -0.967883 0.676634 0.75484 1.81077 2.82955 -0.25 0.859375
+label: 8 score: 0.201813 bbox: 31.425 -30.2 -2.43663 0.698112 0.731616 1.81077 2.19283 -0.5 0.703125
+label: 8 score: 0.201813 bbox: 30.05 -29.15 -2.4226 0.687289 0.720273 1.78269 2.28264 -0.6875 0.859375
+label: 8 score: 0.201813 bbox: -17.1625 22.8375 -1.03038 0.687289 0.75484 1.81077 -2.87065 0.046875 0.28125
+label: 8 score: 0.201813 bbox: -16.475 22.8125 -1.03038 0.687289 0.75484 1.81077 -2.77324 -0.0625 0.359375
+label: 8 score: 0.201813 bbox: -14.7 22.8875 -1.06163 0.698112 0.75484 1.81077 -2.57349 -0.1875 0.265625
+label: 8 score: 0.201813 bbox: -14.0875 22.8375 -1.09288 0.698112 0.75484 1.81077 -2.31397 -0.421875 0.09375
+label: 8 score: 0.201813 bbox: -15.5125 24.4625 -0.999133 0.687289 0.766727 1.81077 -3.05228 -0.234375 0.71875
+label: 8 score: 0.201813 bbox: -16.3125 25.225 -0.967883 0.676634 0.75484 1.81077 -3.12621 -0.1875 0.625
+label: 8 score: 0.201813 bbox: -16.3625 25.9875 -0.967883 0.676634 0.75484 1.81077 3.01913 -0.140625 0.8125
+label: 8 score: 0.201813 bbox: -17.125 26.8625 -0.967883 0.676634 0.75484 1.81077 3.01528 -0.203125 0.796875
+label: 8 score: 0.201813 bbox: -16.525 27.5625 -0.967883 0.676634 0.75484 1.81077 2.8342 -0.1875 0.96875
+label: 8 score: 0.201813 bbox: -17.9375 29.1875 -0.967883 0.676634 0.75484 1.81077 2.78103 -0.1875 0.796875
+label: 8 score: 0.201813 bbox: -17.2125 29.1375 -0.967883 0.687289 0.743137 1.81077 2.80061 -0.171875 0.875
+label: 8 score: 0.201813 bbox: -17.975 29.9625 -0.967883 0.687289 0.743137 1.81077 2.76675 -0.078125 0.859375
+label: 9 score: 0.201813 bbox: -9.9875 29.2125 -1.42511 0.479805 0.487361 1.22523 2.84548 0 0
+label: 8 score: 0.182426 bbox: 32.4375 -31.5 -2.40538 0.687289 0.731616 1.81077 2.17912 -0.578125 0.609375
+label: 8 score: 0.182426 bbox: 32.2125 -30.925 -2.40538 0.698112 0.731616 1.81077 2.15036 -0.46875 0.578125
+label: 8 score: 0.182426 bbox: -17.1875 23.5125 -0.967883 0.676634 0.75484 1.81077 -2.92822 -0.109375 0.328125
+label: 8 score: 0.182426 bbox: -16.425 23.575 -0.999133 0.676634 0.75484 1.81077 -2.86743 -0.1875 0.390625
+label: 8 score: 0.182426 bbox: -15.5375 23.65 -0.999133 0.687289 0.766727 1.81077 -2.89661 -0.1875 0.546875
+label: 8 score: 0.182426 bbox: -14.175 23.5375 -1.06163 0.698112 0.75484 1.81077 -2.58091 -0.421875 0.140625
+
+
+Accuracy:
+    ./test_accuracy_bevdet_mt <model_name> <image_name_list> <data_path> <result_file_path> [batch]
+
+    sample:
+    ./test_accuracy_bevdet_mt bevdet_pt image.list val acc_aie.json 2

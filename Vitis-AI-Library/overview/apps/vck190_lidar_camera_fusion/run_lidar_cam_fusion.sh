@@ -1,1 +1,0 @@
-./lidar_cam_fusion semanticfpn_nuimage_576_320_pt pointpainting_nuscenes_20000_64_0_pt pointpainting_nuscenes_20000_64_1_pt ./resources ./resources/seq_list.txt
