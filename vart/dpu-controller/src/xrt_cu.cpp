@@ -17,7 +17,7 @@
 
 #include <ert.h>
 #include <glog/logging.h>
-
+#include <cstdlib>
 #include <UniLog/UniLog.hpp>
 #include <vitis/ai/env_config.hpp>
 #include <vitis/ai/profiling.hpp>
@@ -133,6 +133,7 @@ static std::string ert_state_to_string(ert_cmd_state state) {
 
 void XrtCu::run(size_t device_core_idx, XrtCu::prepare_ecmd_t prepare,
                 callback_t on_success, callback_t on_failure = []() {
+                  system("show_dpu");
            LOG(WARNING) << "[XrtCu] DPU execution timeout! No handler provided.";
          }) {
   UNI_LOG_CHECK(bo_handles_.size() > 0u, VART_XRT_DEVICE_BUSY)
@@ -194,7 +195,7 @@ void XrtCu::run(size_t device_core_idx, XrtCu::prepare_ecmd_t prepare,
         if (ms > ENV_PARAM(XLNX_DPU_TIMEOUT)) {
 
           LOG(INFO)<<"====================dpu time out need to be reset=============================";
-          return ;
+          break; 
         }
       }
       count++;
