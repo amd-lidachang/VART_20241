@@ -47,7 +47,7 @@ DEF_ENV_PARAM(DEBUG_DPU_RUNNER_DRY_RUN, "0");
 
 
 
-
+/*
 
 const uint64_t DUMP_CTRL_REG = 0x50170000000;
 static const uint32_t DUMP_MAGIC = 0x1111;
@@ -74,7 +74,7 @@ static uint32_t read_reg64(uint64_t addr) {
   munmap(mapped, page_size);
   return value;
 }
-
+*/
 
 
 
@@ -640,12 +640,12 @@ void DpuRunnerBaseImp::before_run_dpu() {
 
   if (ENV_PARAM(XLNX_ENABLE_DUMP)) {
     // Add a register to enable dump 
-      uint32_t reg_val = read_reg64(DUMP_CTRL_REG);
-    if (reg_val != DUMP_MAGIC) {
-      LOG(INFO) << "dump skipped: XLNX_ENABLE_DUMP=1 but MAGIC not matched. reg_val="
-                << std::hex << reg_val;
-      return;
-    }
+    //   uint32_t reg_val = read_reg64(DUMP_CTRL_REG);
+    // if (reg_val != DUMP_MAGIC) {
+    //   LOG(INFO) << "dump skipped: XLNX_ENABLE_DUMP=1 but MAGIC not matched. reg_val="
+    //             << std::hex << reg_val;
+    //   return;
+    // }
     tensor_output_dir_ = "input";
     for_each_tensor(get_input_tensor(subgraph_),
                     &DpuRunnerBaseImp::dump_tensor);
@@ -669,12 +669,12 @@ void DpuRunnerBaseImp::before_run_dpu() {
 
 void DpuRunnerBaseImp::after_run_dpu() {
   if (ENV_PARAM(XLNX_ENABLE_DUMP)) {
-    uint32_t reg_val = read_reg64(DUMP_CTRL_REG);
-    if (reg_val != DUMP_MAGIC) {
-      LOG(INFO) << "dump skipped: XLNX_ENABLE_DUMP=1 but MAGIC not matched. reg_val="
-                << std::hex << reg_val;
-      return;
-    }
+    // uint32_t reg_val = read_reg64(DUMP_CTRL_REG);
+    // if (reg_val != DUMP_MAGIC) {
+    //   LOG(INFO) << "dump skipped: XLNX_ENABLE_DUMP=1 but MAGIC not matched. reg_val="
+    //             << std::hex << reg_val;
+    //   return;
+    // }
     tensor_output_dir_ = "internal";
     for_each_tensor(get_internal_tensor(subgraph_),
                     &DpuRunnerBaseImp::dump_tensor);

@@ -167,7 +167,7 @@ std::vector<vart::TensorBuffer*> DpuRunnerDdr::prepare_input(
   ret.insert(ret.end(), reg_base.begin(), reg_base.end());
 
   auto location_input = get_location(input);
-  // maybe_copy_input(location_input, input);
+  maybe_copy_input(location_input, input);
   prepare_input_for_reg(location_input, input, ret);
 
   auto location_output = get_location(output);
@@ -178,13 +178,16 @@ std::vector<vart::TensorBuffer*> DpuRunnerDdr::prepare_input(
 std::pair<uint32_t, int> DpuRunnerDdr::execute_async(
     const std::vector<vart::TensorBuffer*>& input,
     const std::vector<vart::TensorBuffer*>& output) {
+    
+
+  std::lock_guard<std::mutex> lock(input_mtx_);
+
 
   __TIC__(DPU_RUNNER_COPY_INPUT);
   // UNI_LOG_CHECK(my_input_.empty(), VART_SIZE_MISMATCH);
-   
-    std::lock_guard<std::mutex> lock(input_mtx_);
-    // 不再 abort，直接覆盖旧的 my_input_
-    LOG_IF(INFO, ENV_PARAM(DEBUG_DPU_RUNNER))
+      
+
+    LOG_IF(INFO, my_input_.size()!=0)
   << "tid=" << std::this_thread::get_id() << " preparing input, my_input_.size()=" << my_input_.size();
 
     my_input_.clear();
@@ -200,9 +203,9 @@ std::pair<uint32_t, int> DpuRunnerDdr::execute_async(
   __TOC__(DPU_RUNNER_COPY_OUTPUT);
   
   my_input_.clear();
-  LOG_IF(INFO, ENV_PARAM(DEBUG_DPU_RUNNER))<<"Execute Completed";
+  LOG_IF(INFO, my_input_.size()!=0)
+  << "tid=" << std::this_thread::get_id() << " clear input_size failed, my_input_.size()=" << my_input_.size();
   return std::make_pair<uint32_t, int>(1u, 0);
-
 }
 
 void DpuRunnerDdr::prepare_output(

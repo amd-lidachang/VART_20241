@@ -1,127 +1,231 @@
+// single_thread_defog_xclbin_switch.cpp
 #include <glog/logging.h>
-#include <xrt/xrt/xrt_device.h>
 
+#include <xir/attrs/attrs.hpp>
+#include <xir/graph/graph.hpp>
+#include "vart/runner_ext.hpp"
+#include <thread>
+#include <cstdint>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <tuple>
 #include <vector>
-#include <cstdlib>
-#include <unistd.h>
+#include <unistd.h>  // sleep
 
-#include <xir/tensor/tensor.hpp>
-#include "vart/dpu/vitis_dpu_runner_factory.hpp"
-#include "vart/runner_ext.hpp"
-#include "xir/xrt_device_handle.hpp"
-#include "xir/graph/graph.hpp"
+struct Job {
+  std::string xclbin_path;
+  std::string xmodel_path;
+  std::string input_file;
+  int execute_count = 200;
+  std::string golden_file;
+};
 
-using namespace std;
-
-
-
-
-void run_inference(const string& xmodel, const string& kernel,
-                   const string& input_file, int runner_num, int count,
-                   const string& xclbin_path) {
-
-  std::ifstream stream(xclbin_path, std::ios::binary);
-
-  LOG(INFO) << "Loaded xclbin: " << xclbin_path;
-
-  // Create DPU runners
-  setenv("XLNX_VART_FIRMWARE", xclbin_path.c_str(), 1);
-  vector<std::unique_ptr<vart::Runner>> runners;
-
-     auto graph = xir::Graph::deserialize(xmodel);
-     auto root = graph->get_root_subgraph();
-     xir::Subgraph* dpu_subgraph = nullptr;
-        for (auto c : root->children_topological_sort()) {
-        if (c->get_attr<std::string>("device") == "DPU") {
-            dpu_subgraph = c;
-            break;
-        }
+static xir::Subgraph* find_dpu_subgraph(xir::Graph* graph) {
+  auto root = graph->get_root_subgraph();
+  for (auto c : root->children_topological_sort()) {
+    if (c->has_attr("device") && c->get_attr<std::string>("device") == "DPU") {
+      return c;
     }
-        if (!dpu_subgraph) {
-        std::cerr << "No DPU subgraph found in the model!" << std::endl;
-        return ;
-    }
-      auto attrs = xir::Attrs::create();
-    runners.emplace_back(vart::RunnerExt::create_runner(dpu_subgraph, attrs.get()));
- 
-  for (int i = 0; i < runner_num; ++i) {
-    auto& runner = runners[i];
-    auto r = dynamic_cast<vart::RunnerExt*>(runner.get());
-    auto input = r->get_inputs();
-    CHECK_EQ(input.size(), 1u) << "Only support single input.";
-    auto output = r->get_outputs();
-    
-    size_t batch = input[0]->get_tensor()->get_shape()[0];
-    size_t size_per_batch = input[0]->get_tensor()->get_data_size() / batch;
-
-    for (size_t b = 0; b < batch; ++b) {
-      uint64_t input_data = 0;
-      uint64_t input_size = 0;
-      std::tie(input_data, input_size) = input[0]->data({(int)b, 0, 0, 0});
-      CHECK(std::ifstream(input_file).read((char*)input_data, size_per_batch).good())
-          << "Failed to read input";
-    }
-
-    for (int c = 0; c < count; ++c) {
-      for (auto& in : input) {
-        in->sync_for_write(0, in->get_tensor()->get_data_size() / batch);
-      }
-      for (int i=0; i<10; i++){
-      LOG(INFO)<<"interation run "<<i;
-      runner->execute_async(input, output);
-      runner->wait(0, 0);
-      }
-      for (auto& out : output) {
-        out->sync_for_read(0, out->get_tensor()->get_data_size() / batch);
-      }
-
-    }
-    // sleep(1);
-    // auto h= xir::XrtDeviceHandle::get_instance();
-    // h.reset();
-    // h.reset();
   }
-
- system("devmem 0xa420000000");
-
-
-
-  runners.clear(); 
-  // sleep(1);
-  // auto dpu = xir::DpuController::get_instance();
-
-
+  return nullptr;
 }
 
-int main(int argc, char* argv[]) {
-  if (argc < 6) {
-    std::cerr << "Usage: " << argv[0]
-              << " <xmodel_path> <kernel_name> <input_file> <runner_num> <batch_count>\n";
-    return 1;
+static size_t total_outputs_bytes(const std::vector<vart::TensorBuffer*>& outputs) {
+  size_t total = 0;
+  for (auto* o : outputs) total += o->get_tensor()->get_data_size();
+  return total;
+}
+
+static std::vector<uint8_t> read_file_exact(const std::string& path, size_t expected_size) {
+  std::ifstream ifs(path, std::ios::binary);
+  CHECK(ifs.good()) << "Failed to open file: " << path;
+
+  std::vector<uint8_t> buf(expected_size);
+  ifs.read(reinterpret_cast<char*>(buf.data()), expected_size);
+  CHECK(ifs.gcount() == static_cast<std::streamsize>(expected_size))
+      << "File size mismatch, file=" << path << " expected=" << expected_size
+      << " got=" << ifs.gcount();
+  return buf;
+}
+
+static std::pair<uint64_t, uint64_t> tb_linear_ptr(vart::TensorBuffer* tb) {
+  return tb->data({0, 0, 0, 0});
+}
+
+static bool compare_outputs_with_golden_concat(const std::vector<vart::TensorBuffer*>& outputs,
+                                              const std::vector<uint8_t>& golden,
+                                              std::string* why) {
+  size_t expected_total = total_outputs_bytes(outputs);
+  CHECK_EQ(golden.size(), expected_total);
+
+  size_t golden_off = 0;
+  for (size_t oi = 0; oi < outputs.size(); ++oi) {
+    auto* out_tb = outputs[oi];
+    const size_t bytes = out_tb->get_tensor()->get_data_size();
+
+    uint64_t ptr_u64 = 0, sz = 0;
+    std::tie(ptr_u64, sz) = tb_linear_ptr(out_tb);
+    CHECK(sz >= bytes);
+
+    const uint8_t* out = reinterpret_cast<const uint8_t*>(ptr_u64);
+    const uint8_t* ref = golden.data() + golden_off;
+
+    for (size_t k = 0; k < bytes; ++k) {
+      if (out[k] != ref[k]) {
+        if (why) {
+          *why = "mismatch: output[" + std::to_string(oi) + "] byte=" + std::to_string(k) +
+                 " out=" + std::to_string(out[k]) + " ref=" + std::to_string(ref[k]) +
+                 " golden_off=" + std::to_string(golden_off);
+        }
+        return false;
+      }
+    }
+    golden_off += bytes;
   }
+  return true;
+}
 
-  const string xmodel = argv[1];
-  const string kernel = argv[2];
-  const string input_file = argv[3];
-  const int runner_num = std::stoi(argv[4]);
-  const int count = std::stoi(argv[5]);
+static void fill_input_from_file(const std::vector<vart::TensorBuffer*>& inputs,
+                                 const std::string& input_file) {
+  CHECK(!inputs.empty());
+  auto tb = inputs[0];
 
-  const string xclbin1 = "/usr/lib/rp.xclbin";
-  const string xclbin2 = "/usr/lib/rm.xclbin";
+  const size_t batch = tb->get_tensor()->get_shape()[0];
+  CHECK(batch > 0);
 
-  for (int iter = 0; iter < 1000; ++iter) {
-    string xclbin = (iter % 2 == 0) ? xclbin1 : xclbin2;
-    LOG(INFO) << "\n=== Iteration " << iter + 1 << ": " << xclbin << " ===";
+  const size_t total_size = tb->get_tensor()->get_data_size();
+  const size_t size_per_batch = total_size / batch;
 
-    try {
-      run_inference(xmodel, kernel, input_file, runner_num, count, xclbin);
-    } catch (const std::exception& e) {
-      LOG(ERROR) << "Exception during inference: " << e.what();
+  // 只打开一次文件（比你原来在 batch 循环里反复 open 更合理）
+  auto input_blob = read_file_exact(input_file, size_per_batch);
+
+  for (size_t b = 0; b < batch; ++b) {
+    uint64_t input_data = 0;
+    uint64_t input_size = 0;
+    std::tie(input_data, input_size) = tb->data({(int)b, 0, 0, 0});
+    CHECK(input_size >= size_per_batch);
+    std::memcpy(reinterpret_cast<void*>(input_data), input_blob.data(), size_per_batch);
+  }
+}
+
+static void set_xclbin_firmware(const std::string& xclbin_path) {
+  setenv("XLNX_VART_FIRMWARE", xclbin_path.c_str(), 1);
+  LOG(INFO) << "Set XLNX_VART_FIRMWARE=" << xclbin_path;
+}
+
+// 单线程、单模型：每次 phase 都新建 runner，phase 结束 runner 自动释放
+static void run_phase_single_model(const Job& job) {
+  LOG(INFO) << "[phase] start"
+            << " xclbin=" << job.xclbin_path
+            << " xmodel=" << job.xmodel_path
+            << " count=" << job.execute_count;
+
+  // 0) 切 xclbin（必须在 create_runner 前）
+  set_xclbin_firmware(job.xclbin_path);
+
+  // 1) graph
+  auto graph = xir::Graph::deserialize(job.xmodel_path);
+  auto* dpu_subgraph = find_dpu_subgraph(graph.get());
+  CHECK(dpu_subgraph != nullptr) << "No DPU subgraph found in model: " << job.xmodel_path;
+
+  // 2) runner
+  auto attrs = xir::Attrs::create();
+  std::unique_ptr<vart::Runner> runner = vart::RunnerExt::create_runner(dpu_subgraph, attrs.get());
+  auto* r = dynamic_cast<vart::RunnerExt*>(runner.get());
+  CHECK(r != nullptr) << "Runner is not RunnerExt";
+
+  auto inputs = r->get_inputs();
+  auto outputs = r->get_outputs();
+  CHECK_EQ(inputs.size(), 1u) << "Only support single input";
+
+  // 3) golden 只读一次
+  const size_t golden_bytes = total_outputs_bytes(outputs);
+  auto golden_blob = read_file_exact(job.golden_file, golden_bytes);
+
+  // 4) input
+  fill_input_from_file(inputs, job.input_file);
+
+  // 5) execute loop
+  for (int c = 0; c < job.execute_count; ++c) {
+    for (auto* in : inputs) {
+      in->sync_for_write(0, in->get_tensor()->get_data_size());
+    }
+
+    // IMPORTANT: 这里如果你的 VART 支持 job id + wait，请务必接上 wait
+    // auto jid = runner->execute_async(inputs, outputs);
+    // runner->wait(jid.first /*or jid*/, -1);
+
+    runner->execute_async(inputs, outputs);
+
+    for (auto* out : outputs) {
+      out->sync_for_read(0, out->get_tensor()->get_data_size());
+    }
+
+    std::string why;
+    if (!compare_outputs_with_golden_concat(outputs, golden_blob, &why)) {
+      LOG(ERROR) << "[phase] GOLDEN MISMATCH at iter=" << c << " : " << why;
+      throw std::runtime_error("golden mismatch");
+    }
+
+    if ((c + 1) % 5 == 0) {
+      LOG(INFO) << "[phase] finished " << (c + 1) << "/" << job.execute_count;
     }
   }
 
+  LOG(INFO) << "[phase] done, runner will be released when leaving scope.";
+}
+
+
+// static void run_phase_in_new_thread(const Job& job) {
+//   std::exception_ptr eptr = nullptr;
+
+//   std::thread t([&] {
+//     try {
+//       run_phase_single_model(job);
+//     } catch (...) {
+//       eptr = std::current_exception();
+//     }
+//   });
+
+//   // 這裡 join = “等這個 phase 的 thread 完全結束”
+//   t.join();
+
+//   if (eptr) std::rethrow_exception(eptr);
+// }
+
+
+int main(int argc, char* argv[]) {
+  // google::InitGoogleLogging(argv[0]);
+
+  const std::string xmodel_defog = "DeFog.xmodel";
+  const std::string defog_input_file = "defog_input.bin";
+  const std::string defog_golden_file = "defog_golden.bin";
+
+  const std::string xclbin_dpu3d = "dpu3d.xclbin";
+  const std::string xclbin_dpu4k = "dpu4k.xclbin";
+
+  Job job;
+  job.xmodel_path = xmodel_defog;
+  job.input_file = defog_input_file;
+  job.execute_count = 20;
+  job.golden_file = defog_golden_file;
+
+  for (int i = 0; i < 10000; ++i) {
+    LOG(INFO) << "================ ITERATION=" << i << " ================";
+    try {
+      job.xclbin_path = xclbin_dpu3d;
+      run_phase_single_model(job);   // phase thread #1 (create -> run -> join)
+
+      sleep(1);
+
+      job.xclbin_path = xclbin_dpu4k;
+      run_phase_single_model(job);   // phase thread #2 (create -> run -> join)
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "Fatal: " << e.what();
+    }
+  }
   return 0;
 }

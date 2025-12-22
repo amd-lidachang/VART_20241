@@ -81,7 +81,7 @@ BufferObjectXrtEdgeImp::BufferObjectXrtEdgeImp(size_t size, size_t device_id,
   auto mem_group = holder_->get_memory_bank_index();
   // bo_ = std::make_unique<xrt::bo>(*xrt_.device, bo_size_,
                                   // mem_group); 
-    bo_ = std::make_unique<xrt::bo>(*xrt_.device, bo_size_,0,1);                         //
+    bo_ = std::make_unique<xrt::bo>(*xrt_.device, bo_size_, 0, 1);                         //
   CHECK(bo_ != nullptr) << "bo initialization failed with "          //
                         << "device_id " << device_id << " "          //
                         << "cu_name " << cu_name << " "              //
