@@ -200,8 +200,7 @@ class Worker {
 
   void run_once(const Job& job) {
 
-
-    // 注意：XLNX_VART_FIRMWARE 是进程级环境变量，
+    
     // 必须由主线程在提交任务前 setenv，并保证上一阶段 runner 都已释放。
     LOG(INFO) << "[" << name_ << "] start job"
               << " xclbin=" << job.xclbin_path
@@ -216,6 +215,7 @@ class Worker {
     CHECK(dpu_subgraph != nullptr) << "No DPU subgraph found in model: " << job.xmodel_path;
    
     // 2) 创建 runner（每次 job 都新建，满足“清除 runner”）
+    sleep(1);
     auto attrs = xir::Attrs::create();
     std::unique_ptr<vart::Runner> runner =
         vart::RunnerExt::create_runner(dpu_subgraph, attrs.get());
@@ -268,10 +268,16 @@ class Worker {
       }
     }
 
-    //  runner.reset();
-    // system("modprobe -r zocl");
+    
 
 
+//     std::this_thread::sleep_for(std::chrono::milliseconds(500));    // 注意：XLNX_VART_FIRMWARE 是进程级环境变量，
+
+//     runner.reset();
+  
+//     // system("modprobe -r zocl");
+
+//  std::this_thread::sleep_for(std::chrono::milliseconds(500));
     // 6) 结束即释放：runner/graph/attrs/inputs/outputs 都会在作用域结束自动清理
     // （inputs/outputs 是 vector< TensorBuffer* >，不需要 delete；runner 释放时其内部资源也释放）
     LOG(INFO) << "[" << name_ << "] job done, resources released.";
@@ -326,14 +332,14 @@ int main(int argc, char* argv[]) {
     j0.xclbin_path = xclbin_path;
     j0.xmodel_path = xmodel_defog;
     j0.input_file = defog_input_file;
-    j0.execute_count = 20;
+    j0.execute_count = 10;
     j0.golden_file = "defog_golden.bin";
 
     Job j1;
     j1.xclbin_path = xclbin_path;
     j1.xmodel_path = xmodel_hls;
     j1.input_file = hls_input_file;
-    j1.execute_count = 20;
+    j1.execute_count = 10;
     j1.golden_file = "hls_golden.bin";
 
     w0.submit(j0);
@@ -354,9 +360,10 @@ for(int i =0 ; i<10000; i++){
   try {
     // 阶段 1：dpu3d.xclbin
     run_phase(xclbin_dpu3d);
-    sleep(1);
+    // sleep(2);
     // 阶段 2：dpu4k.xclbin
     run_phase(xclbin_dpu4k);
+    // sleep(2);
 
   } catch (const std::exception& e) {
     LOG(ERROR) << "Fatal: " << e.what();

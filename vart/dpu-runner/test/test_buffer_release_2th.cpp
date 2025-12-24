@@ -17,7 +17,7 @@
 #include <vector>
 #include <unistd.h>
 #include <fcntl.h>
-#include <atomic>
+
 #include <chrono>
 #include <sstream>
     // open, O_RDONLY, O_SYNC
@@ -26,12 +26,93 @@
 #include <cerrno>       // errno
 #include <cstring>      // std::strerror
 #include <cstdint>      // uint64_t
+// // 读整个文件到 string
+// static std::string slurp_file(const std::string& path) {
+//   std::ifstream ifs(path);
+//   if (!ifs.good()) return {};
+//   std::ostringstream oss;
+//   oss << ifs.rdbuf();
+//   return oss.str();
+// }
 
-enum class XclbinKind { DPU3D, DPU4K };
+// 从 kds_custat_raw 判断是否存在 busy (status == busy_code)
+// static bool kds_any_cu_busy(uint32_t busy_code,
+//                            std::string* debug_line /*optional*/) {
+//   const std::string path = "/sys/class/drm/card0/device/kds_custat_raw";
+//   auto txt = slurp_file(path);
+//   if (txt.empty()) {
+//     // 读不到就当作“无法判断”，由上层决定要不要放行
+//     if (debug_line) *debug_line = "cannot read " + path;
+//     return false;
+//   }
 
-static const char* to_cstr(XclbinKind k) {
-  return (k == XclbinKind::DPU3D) ? "dpu3d.xclbin" : "dpu4k.xclbin";
-}
+//   std::istringstream iss(txt);
+//   std::string line;
+//   while (std::getline(iss, line)) {
+//     if (line.empty()) continue;
+
+//     // 以逗号分割，取第5列 status
+//     // 格式: a,b,name,addr,status,usage
+//     std::vector<std::string> cols;
+//     cols.reserve(6);
+//     size_t start = 0;
+//     while (true) {
+//       size_t pos = line.find(',', start);
+//       if (pos == std::string::npos) {
+//         cols.emplace_back(line.substr(start));
+//         break;
+//       }
+//       cols.emplace_back(line.substr(start, pos - start));
+//       start = pos + 1;
+//     }
+
+//     if (cols.size() < 5) continue;
+
+//     // cols,[object Object], 应该是 "0x1" / "0x4" 这种
+//     uint32_t status = 0;
+//     try {
+//       status = static_cast<uint32_t>(std::stoul(cols[4], nullptr, 0));
+//     } catch (...) {
+//       continue;
+//     }
+
+//     if (status == busy_code) {
+//       if (debug_line) *debug_line = line;
+//       return true;
+//     }
+//   }
+//   return false;
+// }
+
+// 等到所有 CU 不处于 busy_code；timeout_ms<0 表示永不超时
+// static void wait_kds_cu_not_busy(uint32_t busy_code = 0x1,
+//                                 int64_t timeout_ms = -1,
+//                                 int poll_interval_ms = 20) {
+//   using clock = std::chrono::steady_clock;
+//   auto t0 = clock::now();
+
+//   while (true) {
+//     std::string why;
+//     bool busy = kds_any_cu_busy(busy_code, &why);
+
+//     if (!busy) return;
+
+//     if (timeout_ms >= 0) {
+//       auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+//                          clock::now() - t0)
+//                          .count();
+//       if (elapsed > timeout_ms) {
+//         throw std::runtime_error("Timeout waiting KDS CU status != 0x1, last busy line: " + why);
+//       }
+//     }
+
+//     // 需要的话可降低打印频率
+//     LOG(INFO) << "[main] KDS CU busy (status==0x" << std::hex << busy_code
+//               << std::dec << "), wait... line=" << why;
+
+//     std::this_thread::sleep_for(std::chrono::milliseconds(poll_interval_ms));
+//   }
+// }
 
 static xir::Subgraph* find_dpu_subgraph(xir::Graph* graph) {
   auto root = graph->get_root_subgraph();
@@ -119,6 +200,28 @@ static RunnerBundle make_runner_bundle(const std::string& xmodel_path,
  
   b.r = dynamic_cast<vart::RunnerExt*>(b.runner.get());
   CHECK(b.r != nullptr) << "Runner is not RunnerExt";
+
+   /*// --- ADD: choose devmem address by xmodel name ---
+  uint64_t devmem_addr = 0;
+  if (xmodel_path.find("DeFog.xmodel") != std::string::npos) {
+    devmem_addr = 0x50100043040;
+  } else if (xmodel_path.find("HLS.xmodel") != std::string::npos) {
+    devmem_addr = 0x50102d37040;
+  }
+
+  if (devmem_addr != 0) {
+    uint64_t val = read_devmem_u64(devmem_addr);
+    // 可选：保存到 bundle（需要你在 RunnerBundle 里加字段）
+    b.extra_devmem_addr = devmem_addr;
+    b.extra_devmem_value = val;
+
+    LOG(INFO) << "devmem[0x" << std::hex << devmem_addr << "] = 0x" << val << std::dec;
+  } else {
+    LOG(INFO) << "xmodel_path does not match DeFog.xmodel/HLS.xmodel, skip devmem read: "
+              << xmodel_path;
+  }
+  // --- END ADD ---*/
+
   b.inputs = b.r->get_inputs();
   b.outputs = b.r->get_outputs();
   CHECK_EQ(b.inputs.size(), 1u) << "Only support single input";
@@ -140,11 +243,6 @@ struct Task {
 
   // golden 已經在主線程讀好，worker 只拿來比對
   std::shared_ptr<std::vector<uint8_t>> golden;
-
-   // --- ADD ---
-  std::atomic<bool>* cancel = nullptr;   // shared cancel flag
-  XclbinKind xclbin_kind = XclbinKind::DPU3D;
-  bool check_only_first_frame = true;    // 你说“第一帧匹配不上”
 };
 
 class Worker {
@@ -293,52 +391,38 @@ static void fill_input_from_file(const std::vector<vart::TensorBuffer*>& inputs,
     CHECK(t.runner != nullptr);
     CHECK(!t.inputs.empty());
     CHECK(t.golden && !t.golden->empty());
-    CHECK(t.cancel != nullptr);
 
-    LOG(INFO) << "[" << name_ << "] start task, count=" << t.execute_count
-              << " xclbin=" << to_cstr(t.xclbin_kind);
+    LOG(INFO) << "[" << name_ << "] start task, count=" << t.execute_count;
 
+    // input 填充也可以放 worker，但你說希望 runner 銷毀在主線程，
+    // 這裡是否放 worker 不影響；我保留在這裡，保持你原本邏輯。
     fill_input_from_file(t.inputs, t.input_file);
 
+    // sleep(0.5);
     for (int c = 0; c < t.execute_count; ++c) {
-      if (t.cancel->load(std::memory_order_relaxed)) {
-        LOG(WARNING) << "[" << name_ << "] cancelled before iter=" << c;
-        return;
-      }
-
       for (auto* in : t.inputs) {
         in->sync_for_write(0, in->get_tensor()->get_data_size());
       }
 
-     
-      auto jid = t.runner->execute_async(t.inputs, t.outputs);
-
-      t.runner->wait(jid.first, -1);
+      // 建議你接 wait（依你 VART 版本調整）
+      // auto jid = t.runner->execute_async(t.inputs, t.outputs);
+      // t.runner->wait(jid.first /*or jid*/, -1);
+      t.runner->execute_async(t.inputs, t.outputs);
 
       for (auto* out : t.outputs) {
         out->sync_for_read(0, out->get_tensor()->get_data_size());
       }
 
-      // 只在第一帧比对并作为“触发点”
-      if (t.check_only_first_frame && c > 0) continue;
-
       std::string why;
       bool ok = compare_outputs_with_golden_concat(t.outputs, *t.golden, &why);
       if (!ok) {
-        // 发现 mismatch -> 置 cancel，让另一个 worker 尽快停
-        t.cancel->store(true, std::memory_order_relaxed);
-
-        LOG(ERROR) << "[" << name_ << "] GOLDEN MISMATCH iter=" << c
-                   << " xclbin=" << to_cstr(t.xclbin_kind)
-                   << " : " << why;
-
-        throw std::runtime_error(std::string("golden mismatch on ") + to_cstr(t.xclbin_kind) +
-                                 " : " + why);
+        LOG(ERROR) << "[" << name_ << "] GOLDEN MISMATCH iter=" << c << " : " << why;
+        throw std::runtime_error("golden mismatch");
       }
-           if ((c + 1) % 5 == 0) {
+
+      if ((c + 1) % 5 == 0) {
         LOG(INFO) << "[" << name_ << "] finished " << (c + 1) << "/" << t.execute_count;
       }
-      
     }
 
     LOG(INFO) << "[" << name_ << "] task done.";
@@ -358,16 +442,10 @@ static void fill_input_from_file(const std::vector<vart::TensorBuffer*>& inputs,
   std::string last_error_;
 };
 
-struct PhaseResult {
-  bool ok = true;
-  std::string err;
-  XclbinKind which = XclbinKind::DPU3D;
-};
 
-static PhaseResult run_phase_two_models(
+static void run_phase_two_models(
     Worker& w_defog,
     Worker& w_hls,
-    XclbinKind kind,
     const std::string& xclbin_path,
 
     const std::string& xmodel_defog,
@@ -378,19 +456,18 @@ static PhaseResult run_phase_two_models(
     const std::string& xmodel_hls,
     const std::string& hls_input,
     const std::string& hls_golden,
-    int hls_count,
-    bool first_frame_check_only = true) {
+    int hls_count) {
 
-  PhaseResult res;
-  res.which = kind;
-
-  std::atomic<bool> cancel{false};
+  // (1) 主線程切 xclbin：一定要在 create_runner 前
+  // wait_kds_cu_not_busy(/*busy_code=*/0x1, /*timeout_ms=*/200, /*poll_interval_ms=*/20);
 
   set_xclbin_firmware(xclbin_path);
 
+  // (2) 主線程建立兩個 runner（同一個 xclbin 之下）
   auto defog = make_runner_bundle(xmodel_defog, defog_golden, 0);
-  auto hls   = make_runner_bundle(xmodel_hls,   hls_golden,   1);
+  auto hls   = make_runner_bundle(xmodel_hls,   hls_golden, 1);
 
+  // (3) 組 task：worker 只用 runner 指標 + buffers + golden 做 execute/比對
   Task t0;
   t0.runner = defog.runner.get();
   t0.inputs = defog.inputs;
@@ -398,9 +475,6 @@ static PhaseResult run_phase_two_models(
   t0.input_file = defog_input;
   t0.execute_count = defog_count;
   t0.golden = defog.golden;
-  t0.cancel = &cancel;
-  t0.xclbin_kind = kind;
-  t0.check_only_first_frame = first_frame_check_only;
 
   Task t1;
   t1.runner = hls.runner.get();
@@ -409,36 +483,38 @@ static PhaseResult run_phase_two_models(
   t1.input_file = hls_input;
   t1.execute_count = hls_count;
   t1.golden = hls.golden;
-  t1.cancel = &cancel;
-  t1.xclbin_kind = kind;
-  t1.check_only_first_frame = first_frame_check_only;
 
+  // (4) 並行跑（兩個 worker）
   w_defog.submit(std::move(t0));
+  sleep(0.5);
   w_hls.submit(std::move(t1));
 
-  // 等待：任何一方失败会 throw；catch 后 cancel 让另一个尽快停
-  try {
-    w_defog.wait_done();
-    w_hls.wait_done();
-  } catch (const std::exception& e) {
-    cancel.store(true, std::memory_order_relaxed);
-    res.ok = false;
-    res.err = e.what();
-  }
+  // (5) 主線程等待兩邊結束（確保 worker 不再使用 runner）
+  w_defog.wait_done();
+  w_hls.wait_done();
 
-  // 关键：无论成功/失败，都在主线程销毁 runner，作为“reset 掉两个 runner”
-  LOG(INFO) << "[main] destroying runners in main thread, xclbin=" << xclbin_path;
+  // (6) 你要的關鍵：主線程「在切換 xclbin 的中間」銷毀 runner/graph/attrs
+  LOG(INFO) << "[main] destroying runners in main thread before switching xclbin...";
+
+  // sleep(1);
   hls.runner.reset();
   hls.attrs.reset();
   hls.graph.reset();
+  sleep(1);    
   defog.runner.reset();
   defog.attrs.reset();
-  defog.graph.reset();
-
-  return res;
+  defog.graph.release();
+  sleep(0.5);
+ 
+  LOG(INFO) << "[main] phase done for xclbin=" << xclbin_path;
 }
+// ===== 你原本的工具函數：find_dpu_subgraph / total_outputs_bytes / read_file_exact
+// / tb_linear_ptr / compare_outputs_with_golden_concat / fill_input_from_file
+// 這些都可以原封不動保留 =====
 
 int main(int argc, char* argv[]) {
+
+
   const std::string defog_input_file = "defog_input.bin";
   const std::string hls_input_file   = "hls_input.bin";
 
@@ -453,62 +529,20 @@ int main(int argc, char* argv[]) {
 
   for (int i = 0; i < 10000; ++i) {
     LOG(INFO) << "================ ITERATION=" << i << " ================";
-
-    // 先跑 3D
-    auto r3d = run_phase_two_models(
-        w_defog, w_hls,
-        XclbinKind::DPU3D, xclbin_dpu3d,
-        xmodel_defog, defog_input_file, "defog_golden.bin", 20,
-        xmodel_hls,   hls_input_file,   "hls_golden.bin",   20,
-        /*first_frame_check_only=*/true);
-
-    if (!r3d.ok) {
-      LOG(ERROR) << "[main] mismatch on 3D detected: " << r3d.err;
-
-      // 你的要求(2)：如果是 3D mismatch -> 用 4K 创建 runner 冲洗/重置 -> 再回 3D 执行
-      LOG(WARNING) << "[main] recovery: switch to 4K xclbin, create+reset runners, then back to 3D";
-
-      // (A) 4K 冲洗：创建 runner（可选跑一帧或不跑），然后销毁
-      auto flush4k = run_phase_two_models(
-          w_defog, w_hls,
-          XclbinKind::DPU4K, xclbin_dpu4k,
-          xmodel_defog, defog_input_file, "defog_golden.bin", 20,
-          xmodel_hls,   hls_input_file,   "hls_golden.bin",   20,
-          /*first_frame_check_only=*/true);
-
-      if (!flush4k.ok) {
-        LOG(ERROR) << "[main] recovery flush on 4K also failed: " << flush4k.err;
-        // 这里你可以选择 continue / break / 进一步做设备级 reset（如果你有）
-      }
-
-      // (B) 再回 3D 重跑
-      auto retry3d = run_phase_two_models(
-          w_defog, w_hls,
-          XclbinKind::DPU3D, xclbin_dpu3d,
+    try {
+      run_phase_two_models(w_defog, w_hls,
+          xclbin_dpu3d,
           xmodel_defog, defog_input_file, "defog_golden.bin", 1,
-          xmodel_hls,   hls_input_file,   "hls_golden.bin",   1,
-          /*first_frame_check_only=*/true);
+          xmodel_hls,   hls_input_file,   "hls_golden.bin",   1);
+      
+      run_phase_two_models(w_defog, w_hls,
+          xclbin_dpu4k,
+          xmodel_defog, defog_input_file, "defog_golden.bin", 1,
+          xmodel_hls,   hls_input_file,   "hls_golden.bin",   1);
 
-      if (!retry3d.ok) {
-        LOG(ERROR) << "[main] retry on 3D still failed: " << retry3d.err;
-      }
-
-      continue; // 进入下一轮
-    }
-
-    // 再跑 4K（正常路径）
-    auto r4k = run_phase_two_models(
-        w_defog, w_hls,
-        XclbinKind::DPU4K, xclbin_dpu4k,
-        xmodel_defog, defog_input_file, "defog_golden.bin", 1,
-        xmodel_hls,   hls_input_file,   "hls_golden.bin",   1,
-        /*first_frame_check_only=*/true);
-
-    if (!r4k.ok) {
-      LOG(ERROR) << "[main] mismatch on 4K detected: " << r4k.err;
-      // 你也可以类似写 4K 的恢复策略（你当前需求只写了 3D 的）
+    } catch (const std::exception& e) {
+      LOG(ERROR) << "Fatal: " << e.what();
     }
   }
-
   return 0;
 }

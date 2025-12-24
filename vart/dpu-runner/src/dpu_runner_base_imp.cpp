@@ -47,7 +47,6 @@ DEF_ENV_PARAM(DEBUG_DPU_RUNNER_DRY_RUN, "0");
 
 
 
-/*
 
 const uint64_t DUMP_CTRL_REG = 0x50170000000;
 static const uint32_t DUMP_MAGIC = 0x1111;
@@ -74,7 +73,7 @@ static uint32_t read_reg64(uint64_t addr) {
   munmap(mapped, page_size);
   return value;
 }
-*/
+
 
 
 
@@ -689,6 +688,57 @@ void DpuRunnerBaseImp::after_run_dpu() {
                     &DpuRunnerBaseImp::compare_tensor);
   }
 }
+static void dump_devmem_to_bin(uint64_t phys_addr, size_t dump_size, const std::string& out_path) {
+  CHECK(dump_size > 0);
+
+  const size_t page_size = static_cast<size_t>(::sysconf(_SC_PAGESIZE));
+  CHECK(page_size > 0);
+
+  int memfd = open("/dev/mem", O_RDONLY | O_SYNC);
+  CHECK(memfd >= 0);
+
+  int outfd = open(out_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  CHECK(outfd >= 0);
+
+  uint64_t cur = phys_addr;
+  size_t remaining = dump_size;
+
+  while (remaining > 0) {
+    const uint64_t page_base = cur & ~static_cast<uint64_t>(page_size - 1);
+    const size_t   page_off  = static_cast<size_t>(cur - page_base);
+
+    // 本次映射长度：至少覆盖当前页内 offset 到页尾；也可以更大，但要页对齐
+    size_t map_len = page_off + remaining;
+    // 取不超过一个合理块大小，避免一次 map 太大（可按需调整）
+    const size_t max_map = 4 * 1024 * 1024; // 4MB
+    map_len = std::min(map_len, max_map);
+
+    // mmap 的 length 不要求页对齐，但实际内部会按页映射；这里做个上取整更保险
+    size_t map_len_rounded = (map_len + page_size - 1) & ~(page_size - 1);
+
+    void* map = mmap(nullptr, map_len_rounded, PROT_READ, MAP_SHARED, memfd, page_base);
+    CHECK(map != MAP_FAILED);
+
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(map) + page_off;
+    const size_t can_copy = std::min(remaining, map_len - page_off);
+
+    // 写文件：确保写满
+    size_t written_total = 0;
+    while (written_total < can_copy) {
+      ssize_t w = ::write(outfd, src + written_total, can_copy - written_total);
+      CHECK(w >= 0);
+      written_total += static_cast<size_t>(w);
+    }
+
+    munmap(map, map_len_rounded);
+
+    cur += can_copy;
+    remaining -= can_copy;
+  }
+
+  close(outfd);
+  close(memfd);
+}
 
 void DpuRunnerBaseImp::start_dpu2(size_t device_core_id) {
   if (ENV_PARAM(DEBUG_DPU_RUNNER_DRY_RUN) >= 3) {
@@ -708,6 +758,22 @@ void DpuRunnerBaseImp::start_dpu2(size_t device_core_id) {
               << ENV_PARAM(DEBUG_DPU_RUNNER_DRY_RUN) << ", ignore running dpu";
     return;
   }
+
+
+    uint32_t reg_val = read_reg64(DUMP_CTRL_REG);
+    if (reg_val == DUMP_MAGIC) {
+            
+      auto dump_name = "DPU_"+ std::to_string(device_core_id) + "_REG.bin"; 
+      LOG(INFO)<< "Start to dump weights for:"  <<"device_core_id:["<<device_core_id<<"] dump file to " << dump_name;
+      dump_devmem_to_bin (gen_reg[0], 21132096, dump_name);
+
+    }
+    else{
+              LOG(INFO) << "dump skipped: MAGIC not matched. reg_val="
+                << std::hex << reg_val;
+ 
+    }
+  
   for (auto idx = 0u; idx < sg_and_code.size(); ++idx) {
     auto code = sg_and_code[idx].code_addr;
     LOG_IF(INFO, ENV_PARAM(DEBUG_DPU_RUNNER))
@@ -722,8 +788,10 @@ void DpuRunnerBaseImp::start_dpu2(size_t device_core_id) {
         << to_string(gen_reg,
                      session_->get_dpu_controller()->get_size_of_gen_regs(
                          device_core_id))
-        << " "  //
+        << " " //
         ;
+
+    
     if (xlnx_enable_debug_dpu_data_mode()) {
       prepare_envirnment(sg_and_code[idx], gen_reg, device_core_id);
       before_run_dpu();
